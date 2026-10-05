@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>하예라 연수 일정 시스템</title>
+    <!-- Firebase SDK (실시간 데이터베이스 연동용) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .header { text-align: center; margin-bottom: 20px; }
+        .header h2 { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .header img { width: 45px; height: 45px; border-radius: 50%; object-fit: cover; }
+        
+        .tabs { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab-btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: bold; background: #ddd; transition: 0.3s; }
+        .tab-btn.active { background: #4F46E5; color: white; }
+        
+        /* 공통 컨테이너 */
+        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 1400px; margin: 0 auto; display: none; }
+        .container.active { display: block; }
+        
+        h3 { margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        input[type="text"], select, button, textarea { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+        button { cursor: pointer; background: #4F46E5; color: white; border: none; font-weight: bold; }
+        button:hover { background: #4338CA; }
+        .danger-btn { background: #ff4d4f; }
+        .danger-btn:hover { background: #d9363e; }
+
+        /* 세팅 화면 */
+        .setup-form { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+        .setup-form input[type="text"] { flex: 1; min-width: 150px; }
+        .stage-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        .stage-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; position: relative; }
+        .stage-card h4 { margin: 0 0 10px 0; color: #4F46E5; }
+        .stage-card p { margin: 0 0 8px 0; font-size: 14px; color: #475569; line-height: 1.5; }
+        .rep-badge { display: inline-block; background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 5px; }
+
+        /* 주간 일정 화면 & 개인별 화면 공통 */
+        .schedule-controls { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0; }
+        .form-row { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; align-items: center; }
+        .time-separator { font-weight: bold; color: #666; }
+        .checkbox-label { font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+        
+        .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; overflow-x: auto; min-width: 950px; }
+        .day-column { background: #f8fafc; border-radius: 8px; padding: 10px; border: 1px solid #e2e8f0; min-height: 400px; }
+        .day-title { text-align: center; font-weight: bold; padding-bottom: 5px; margin-bottom: 5px; }
+        
+        .day-date-input { width: 100%; box-sizing: border-box; padding: 4px; text-align: center; border: 1px dashed #94a3b8; border-radius: 4px; font-size: 12px; margin-bottom: 10px; color: #333; background: #fff; }
+        .day-date-input:focus { border-color: #4F46E5; outline: none; }
+        .day-date-display { text-align: center; font-size: 13px; font-weight: bold; color: #475569; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #e2e8f0; }
+
+        .day-column:nth-child(6) .day-title { color: #2563eb; }
+        .day-column:nth-child(7) .day-title { color: #dc2626; }
+
+        /* 일정 카드 디자인 */
+        .schedule-card { background: white; border: 1px solid #cbd5e1; border-left: 4px solid #4F46E5; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .sch-time { font-weight: bold; color: #4F46E5; margin-bottom: 5px; font-size: 13px; background: #eef2ff; padding: 4px; border-radius: 4px; text-align: center; }
+        .sch-stage { font-weight: bold; font-size: 15px; margin-bottom: 5px; }
+        .sch-rep { font-size: 12px; color: #d97706; margin-bottom: 5px; font-weight: bold; }
+        .sch-members { color: #333; margin-bottom: 4px; }
+        .sch-absent { color: #dc2626; font-size: 12px; }
+        .sch-remark { color: #0f766e; font-size: 12px; margin-top: 6px; background: #ccfbf1; padding: 6px; border-radius: 4px; border: 1px solid #99f6e4; word-break: break-all; }
+        .delete-sch-btn { background: #f1f5f9; color: #64748b; padding: 4px 8px; font-size: 11px; margin-top: 8px; width: 100%; }
+        .delete-sch-btn:hover { background: #e2e8f0; }
+        
+        .personal-card { border-left-color: #ec4899; background-color: #fdf2f8; }
+        .personal-card .sch-time { color: #be185d; background: #fce7f3; }
+        .personal-card .sch-stage { color: #be185d; }
+        .sch-type-badge { background: #ec4899; color: white; display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 5px; }
+
+        .member-box-wrap { padding: 12px; background: white; border-radius: 6px; border: 1px solid #ccc; margin-bottom: 15px; }
+        .member-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed #eee; padding-bottom: 8px; }
+        
+        select:disabled { background: #e2e8f0; cursor: not-allowed; }
+        #syncStatus { text-align: center; font-size: 12px; color: #10b981; margin-bottom: 10px; font-weight: bold; }
+
+        /* 모두 가능 최상단 바 스타일 */
+        .all-possible-bar { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 10px 15px; border-radius: 6px; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; font-weight: bold; color: #166534; cursor: pointer; }
+
+        /* 오전/오후 색상 구분 스타일 */
+        .submit-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; overflow-x: auto; min-width: 950px; margin-top: 15px; }
+        
+        .bulk-box-am { background: #eff6ff; border: 1px solid #bfdbfe; padding: 8px; border-radius: 6px; margin-bottom: 8px; font-size: 12px; }
+        .bulk-box-am label { font-weight: bold; color: #1d4ed8; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-bottom: 4px; }
+        .bulk-box-am input[type="text"] { width: 100%; padding: 4px; font-size: 11px; border: 1px solid #93c5fd; border-radius: 4px; }
+        
+        .bulk-box-pm { background: #fff7ed; border: 1px solid #fed7aa; padding: 8px; border-radius: 6px; margin-bottom: 12px; font-size: 12px; }
+        .bulk-box-pm label { font-weight: bold; color: #c2410c; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-bottom: 4px; }
+        .bulk-box-pm input[type="text"] { width: 100%; padding: 4px; font-size: 11px; border: 1px solid #fdba74; border-radius: 4px; }
+
+        .submit-slot-am { background: #f8fafc; border: 1px solid #cbd5e1; padding: 6px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
+        .submit-slot-am label { font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer; color: #1d4ed8; margin-bottom: 4px; }
+        .submit-slot-am input[type="text"] { width: 100%; padding: 4px; font-size: 11px; margin-top: 2px; border: 1px solid #cbd5e1; border-radius: 4px; }
+
+        .submit-slot-pm { background: #fffbeb; border: 1px solid #fde68a; padding: 6px; border-radius: 6px; margin-bottom: 6px; font-size: 12px; }
+        .submit-slot-pm label { font-weight: bold; display: flex; align-items: center; gap: 4px; cursor: pointer; color: #c2410c; margin-bottom: 4px; }
+        .submit-slot-pm input[type="text"] { width: 100%; padding: 4px; font-size: 11px; margin-top: 2px; border: 1px solid #fde68a; border-radius: 4px; }
+
+        /* 제출 결과 표 및 곡별 가능 표 스타일 */
+        .result-table-container { overflow-x: auto; margin-top: 15px; }
+        table.matrix-table { width: 100%; border-collapse: collapse; background: white; font-size: 12px; min-width: 900px; }
+        table.matrix-table th, table.matrix-table td { border: 1px solid #cbd5e1; padding: 8px; text-align: center; vertical-align: middle; }
+        table.matrix-table th { background: #f8fafc; color: #334155; font-weight: bold; }
+        
+        .matrix-cell { background: #fff1f2; color: #9f1239; font-weight: bold; border-radius: 4px; padding: 4px; cursor: pointer; position: relative; display: inline-block; width: 100%; box-sizing: border-box; }
+        .avail-cell-yes { background: #dcfce7; color: #15803d; font-weight: bold; border-radius: 4px; padding: 6px; display: inline-block; width: 100%; box-sizing: border-box; }
+        
+        .matrix-cell:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 115%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: pre-wrap;
+            z-index: 100;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            min-width: 140px;
+            pointer-events: none;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>
+            <img src="channels4_profile.jpg" alt="하예라 로고"> 
+            하예라 연수 일정 시스템
+        </h2>
+        <div id="syncStatus">🔄 서버와 실시간 연결 중...</div>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('submit')">1. 일정 제출</button>
+            <button class="tab-btn" onclick="switchTab('result')">2. 취합 결과</button>
+            <button class="tab-btn" onclick="switchTab('stage-availability')">3. 곡별 일정 결과</button>
+            <button class="tab-btn" onclick="switchTab('setup')">4. 곡 인원 세팅</button>
+            <button class="tab-btn" onclick="switchTab('schedule')">5. 주간 일정</button>
+            <button class="tab-btn" onclick="switchTab('personal')">6. 개인별 일정 확인</button>
+        </div>
+    </div>
+
+    <!-- 1. 일정 제출 화면 -->
+    <div id="submit-view" class="container active">
+        <div class="schedule-controls">
+            <h3>개인별 불가능한 시간 및 사유 제출</h3>
+            <div class="form-row">
+                <select id="submitNameSelect" onchange="loadMySubmission()" style="min-width: 250px; font-size: 15px;">
+                    <option value="">본인 이름을 선택하세요</option>
+                </select>
+                <button onclick="submitUnavailableTimes()" style="background: #10b981; padding: 10px 20px;">제출하기</button>
+            </div>
+
+            <div class="all-possible-bar">
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; width: 100%;">
+                    <input type="checkbox" id="allPossibleChk" onchange="toggleAllPossible()" style="width: 18px; height: 18px;"> 🌟 모두 가능 (모든 시간대 참여 가능)
+                </label>
+            </div>
+        </div>
+        <div class="submit-grid" id="submitWeekGrid"></div>
+    </div>
+
+    <!-- 2. 제출 결과 확인 화면 -->
+    <div id="result-view" class="container">
+        <div class="schedule-controls" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h3 style="margin: 0; border: none; padding: 0;">팀원 전체 불가능 시간 취합 결과 (표)</h3>
+                <p style="font-size: 13px; color: #666; margin: 4px 0 0 0;">세로축은 시간대(09~17시 제외), 가로축은 요일이며 불가능한 인원이 표시됩니다.</p>
+            </div>
+            <button class="danger-btn" onclick="resetAllSubmissions()" style="padding: 10px 15px; font-size: 14px;">새로운 일정 취합 시작</button>
+        </div>
+        <div class="result-table-container" id="resultTableContainer"></div>
+    </div>
+
+    <!-- 3. 곡별 일정 결과 화면 -->
+    <div id="stage-availability-view" class="container">
+        <div class="schedule-controls">
+            <h3>🎵 곡별 일정 결과 필터링</h3>
+            <p style="font-size: 13px; color: #666; margin-bottom: 15px;">곡을 선택하면 해당 곡에 배정된 인원들의 제출 결과를 종합하여, <b>전원이 가능한 시간</b>을 초록색으로 표시합니다.</p>
+            <div class="form-row">
+                <select id="availabilityStageSelect" onchange="renderStageAvailability()" style="min-width: 300px; font-size: 15px;">
+                    <option value="">곡을 선택하세요</option>
+                </select>
+            </div>
+        </div>
+        <div class="result-table-container" id="availabilityTableContainer"></div>
+    </div>
+
+    <!-- 4. 곡 인원 세팅 화면 -->
+    <div id="setup-view" class="container">
+        <h3>곡 목록 등록</h3>
+        <div class="setup-form">
+            <input type="text" id="stageNameInput" placeholder="곡 이름">
+            <input type="text" id="repInput" placeholder="곡장 이름">
+            <input type="text" id="membersInput" placeholder="참가자 전체 (쉼표로 구분)">
+            <button onclick="addStage()">곡 추가</button>
+        </div>
+        <div class="stage-list" id="stageList"></div>
+    </div>
+
+    <!-- 5. 전체 주간 일정 화면 -->
+    <div id="schedule-view" class="container">
+        <div class="schedule-controls">
+            <h3>새 연습 일정 등록</h3>
+            
+            <div class="form-row" style="margin-bottom: 20px;">
+                <label class="checkbox-label" style="color: #ec4899; font-weight: bold; background: #fdf2f8; padding: 10px 15px; border-radius: 6px; border: 1px solid #fbcfe8; width: 100%;">
+                    <input type="checkbox" id="isPersonalCheck" onchange="updateMembersCheckbox()"> 🌟 개인 연수
+                </label>
+            </div>
+
+            <div class="form-row">
+                <select id="schDay">
+                    <option value="0">월요일</option><option value="1">화요일</option>
+                    <option value="2">수요일</option><option value="3">목요일</option>
+                    <option value="4">금요일</option><option value="5">토요일</option>
+                    <option value="6">일요일</option>
+                </select>
+                
+                <select id="schStartTime"></select> <span class="time-separator">~</span> <select id="schEndTime"></select>
+                <select id="schStage" onchange="updateMembersCheckbox()">
+                    <option value="">곡 선택 (먼저 세팅 탭에서 등록하세요)</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <input type="text" id="schRemark" placeholder="비고" style="width: 100%;">
+            </div>
+
+            <div class="member-box-wrap">
+                <div class="member-header">
+                    <small style="color:#666;">참가 인원을 선택하세요. (불참자는 체크 해제)</small>
+                    <label class="checkbox-label" style="font-weight:bold; color:#4F46E5;">
+                        <input type="checkbox" id="selectAllBtn" onchange="toggleAll()" checked> 전체 선택 / 해제
+                    </label>
+                </div>
+                
+                <div id="memberCheckboxesList" style="display: flex; flex-wrap: wrap; gap: 10px; min-height: 20px;">
+                    곡을 선택하면 인원이 표시됩니다.
+                </div>
+            </div>
+
+            <button onclick="addSchedule()" style="width: 100%; padding: 14px; font-size: 16px;">일정 등록하기</button>
+        </div>
+
+        <div class="week-grid" id="fullWeekGrid"></div>
+    </div>
+
+    <!-- 6. 개인별 일정 확인 화면 -->
+    <div id="personal-view" class="container">
+        <div class="schedule-controls" style="text-align: center;">
+            <h3>내 일정 모아보기</h3>
+            <p style="font-size: 14px; color: #666; margin-bottom: 10px;">이름을 선택하면 해당 인원이 포함된 일정만 주간 달력에 표시됩니다.</p>
+            <select id="personalNameSelect" onchange="renderPersonalSchedules()" style="min-width: 250px; font-size: 16px; text-align: center;">
+                <option value="">이름을 선택하세요</option>
+            </select>
+        </div>
+        <div class="week-grid" id="personalWeekGrid"></div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+  apiKey: "AIzaSyAK-pQMQkowWyQcYpLKc9cdIvxAgQ3nGIg",
+  authDomain: "hayeraschedule.firebaseapp.com",
+  databaseURL: "https://hayeraschedule-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "hayeraschedule",
+  storageBucket: "hayeraschedule.firebasestorage.app",
+  messagingSenderId: "585338193163",
+  appId: "1:585338193163:web:92a95c7eedc916a0020e0e",
+  measurementId: "G-XWVNGLVQDM"
+};
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let stages = [];
+        let schedules = [];
+        let dayDates = ['', '', '', '', '', '', ''];
+        let unavailabilities = [];
+
+        function generateTimeOptions() {
+            let options = '<option value="">시간 선택</option>';
+            for(let h = 5; h <= 24; h++) {
+                let hour = h.toString().padStart(2, '0');
+                options += `<option value="${hour}:00">${hour}:00</option>`;
+            }
+            return options;
+        }
+
+        window.onload = () => {
+            const timeOpts = generateTimeOptions();
+            document.getElementById('schStartTime').innerHTML = timeOpts;
+            document.getElementById('schEndTime').innerHTML = timeOpts;
+            
+            initGrid('fullWeekGrid', true);
+            initGrid('personalWeekGrid', false);
+            initSubmitGrid();
+            
+            initRealtimeSync();
+        };
+
+        function initRealtimeSync() {
+            db.collection("stages").onSnapshot((snapshot) => {
+                stages = [];
+                snapshot.forEach((doc) => {
+                    stages.push({ id: doc.id, ...doc.data() });
+                });
+                renderStages();
+                if(document.getElementById('schedule-view').classList.contains('active')) updateStageDropdown();
+                if(document.getElementById('personal-view').classList.contains('active')) updatePersonalDropdown();
+                if(document.getElementById('stage-availability-view').classList.contains('active')) updateAvailabilityStageDropdown();
+                updateSubmitNameDropdown();
+            });
+
+            db.collection("schedules").onSnapshot((snapshot) => {
+                schedules = [];
+                snapshot.forEach((doc) => {
+                    schedules.push({ id: doc.id, ...doc.data() });
+                });
+                renderWeekSchedules();
+                renderPersonalSchedules();
+            });
+
+            db.collection("settings").doc("dayDates").onSnapshot((doc) => {
+                if (doc.exists) {
+                    dayDates = doc.data().dates || ['', '', '', '', '', '', ''];
+                    initGrid('fullWeekGrid', true);
+                    initGrid('personalWeekGrid', false);
+                    initSubmitGrid(); 
+                    renderWeekSchedules();
+                    renderPersonalSchedules();
+                    renderResultMatrix();
+                    renderStageAvailability();
+                }
+            });
+
+            db.collection("unavailabilities").onSnapshot((snapshot) => {
+                unavailabilities = [];
+                snapshot.forEach((doc) => {
+                    unavailabilities.push({ id: doc.id, ...doc.data() });
+                });
+                renderResultMatrix();
+                loadMySubmission();
+                if(document.getElementById('stage-availability-view').classList.contains('active')) renderStageAvailability();
+            });
+
+            document.getElementById('syncStatus').innerText = "🟢 실시간 동기화 활성화됨";
+        }
+
+        function initGrid(gridId, isEditMode) {
+            const grid = document.getElementById(gridId);
+            const days = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+            grid.innerHTML = '';
+            
+            days.forEach((day, index) => {
+                let dateElement = isEditMode 
+                    ? `<input type="text" class="day-date-input" placeholder="날짜" value="${dayDates[index] || ''}" onchange="updateDayDate(${index}, this.value)">`
+                    : `<div class="day-date-display">${dayDates[index] || '날짜 미지정'}</div>`;
+                    
+                let titleWrapClass = isEditMode ? 'border-bottom: 2px solid #e2e8f0;' : '';
+
+                grid.innerHTML += `
+                    <div class="day-column" id="${gridId}-day-${index}">
+                        <div style="${titleWrapClass}">
+                            <div class="day-title">${day}</div>
+                            ${dateElement}
+                        </div>
+                        <div class="sch-list"></div>
+                    </div>
+                `;
+            });
+        }
+
+        function initSubmitGrid() {
+            const grid = document.getElementById('submitWeekGrid');
+            const days = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+            grid.innerHTML = '';
+
+            days.forEach((day, dayIndex) => {
+                let dateElement = `<input type="text" class="day-date-input" placeholder="날짜" value="${dayDates[dayIndex] || ''}" onchange="updateDayDate(${dayIndex}, this.value)">`;
+                
+                let slotsHtml = `
+                    <div class="bulk-box-am">
+                        <label>
+                            <input type="checkbox" class="bulk-am-chk" data-day="${dayIndex}" onchange="toggleBulkAm(${dayIndex})"> ☀️ 오전 전체 불가
+                        </label>
+                        <input type="text" class="bulk-am-reason" placeholder="오전 전체 사유 입력" style="display: none;" data-day="${dayIndex}">
+                    </div>
+                    <div class="bulk-box-pm">
+                        <label>
+                            <input type="checkbox" class="bulk-pm-chk" data-day="${dayIndex}" onchange="toggleBulkPm(${dayIndex})"> 🌙 오후 전체 불가
+                        </label>
+                        <input type="text" class="bulk-pm-reason" placeholder="오후 전체 사유 입력" style="display: none;" data-day="${dayIndex}">
+                    </div>
+                `;
+                
+                for(let h = 5; h < 24; h++) {
+                    if (h >= 9 && h <= 17) continue;
+
+                    let startH = h.toString().padStart(2, '0') + ':00';
+                    let endH = (h + 1).toString().padStart(2, '0') + ':00';
+                    let slotTimeStr = `${startH} - ${endH}`;
+                    let isAm = h < 9;
+                    let slotClass = isAm ? 'submit-slot-am' : 'submit-slot-pm';
+                    
+                    slotsHtml += `
+                        <div class="${slotClass}" data-time-type="${isAm ? 'am' : 'pm'}">
+                            <label>
+                                <input type="checkbox" class="unavail-chk" data-day="${dayIndex}" data-time="${slotTimeStr}" onchange="toggleReasonInput(this)"> ${slotTimeStr}
+                            </label>
+                            <input type="text" class="unavail-reason" placeholder="사유 입력" style="display: none;" data-day="${dayIndex}" data-time="${slotTimeStr}">
+                        </div>
+                    `;
+                }
+
+                grid.innerHTML += `
+                    <div class="day-column">
+                        <div style="border-bottom: 2px solid #e2e8f0; margin-bottom: 10px;">
+                            <div class="day-title">${day}</div>
+                            ${dateElement}
+                        </div>
+                        ${slotsHtml}
+                    </div>
+                `;
+            });
+        }
+
+        function toggleReasonInput(checkbox) {
+            const box = checkbox.closest('.submit-slot-am, .submit-slot-pm');
+            const reasonInput = box.querySelector('.unavail-reason');
+            if(checkbox.checked) {
+                reasonInput.style.display = 'block';
+                document.getElementById('allPossibleChk').checked = false;
+            } else {
+                reasonInput.style.display = 'none';
+                reasonInput.value = '';
+            }
+        }
+
+        function toggleAllPossible() {
+            const isChecked = document.getElementById('allPossibleChk').checked;
+            if (isChecked) {
+                document.querySelectorAll('.unavail-chk, .bulk-am-chk, .bulk-pm-chk').forEach(cb => cb.checked = false);
+                document.querySelectorAll('.unavail-reason, .bulk-am-reason, .bulk-pm-reason').forEach(input => {
+                    input.style.display = 'none';
+                    input.value = '';
+                });
+            }
+        }
+
+        function toggleBulkAm(dayIndex) {
+            const col = document.querySelectorAll('.submit-grid .day-column')[dayIndex];
+            const bulkChk = col.querySelector('.bulk-am-chk');
+            const reasonInput = col.querySelector('.bulk-am-reason');
+            
+            if(bulkChk.checked) {
+                document.getElementById('allPossibleChk').checked = false;
+                reasonInput.style.display = 'block';
+                col.querySelectorAll('.submit-slot-am').forEach(box => {
+                    const chk = box.querySelector('.unavail-chk');
+                    chk.checked = true;
+                    const rInput = box.querySelector('.unavail-reason');
+                    rInput.style.display = 'none';
+                    rInput.value = '';
+                });
+            } else {
+                reasonInput.style.display = 'none';
+                reasonInput.value = '';
+                col.querySelectorAll('.submit-slot-am').forEach(box => {
+                    const chk = box.querySelector('.unavail-chk');
+                    chk.checked = false;
+                });
+            }
+        }
+
+        function toggleBulkPm(dayIndex) {
+            const col = document.querySelectorAll('.submit-grid .day-column')[dayIndex];
+            const bulkChk = col.querySelector('.bulk-pm-chk');
+            const reasonInput = col.querySelector('.bulk-pm-reason');
+            
+            if(bulkChk.checked) {
+                document.getElementById('allPossibleChk').checked = false;
+                reasonInput.style.display = 'block';
+                col.querySelectorAll('.submit-slot-pm').forEach(box => {
+                    const chk = box.querySelector('.unavail-chk');
+                    chk.checked = true;
+                    const rInput = box.querySelector('.unavail-reason');
+                    rInput.style.display = 'none';
+                    rInput.value = '';
+                });
+            } else {
+                reasonInput.style.display = 'none';
+                reasonInput.value = '';
+                col.querySelectorAll('.submit-slot-pm').forEach(box => {
+                    const chk = box.querySelector('.unavail-chk');
+                    chk.checked = false;
+                });
+            }
+        }
+
+        function updateDayDate(index, value) {
+            dayDates[index] = value;
+            db.collection("settings").doc("dayDates").set({ dates: dayDates });
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.container').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId + '-view').classList.add('active');
+            event.target.classList.add('active');
+
+            if (tabId === 'schedule') {
+                updateStageDropdown();
+                renderWeekSchedules();
+            } else if (tabId === 'personal') {
+                updatePersonalDropdown();
+                renderPersonalSchedules();
+            } else if (tabId === 'submit') {
+                updateSubmitNameDropdown();
+                loadMySubmission();
+            } else if (tabId === 'result') {
+                renderResultMatrix();
+            } else if (tabId === 'stage-availability') {
+                updateAvailabilityStageDropdown();
+                renderStageAvailability();
+            }
+        }
+
+        function addStage() {
+            const name = document.getElementById('stageNameInput').value.trim();
+            const rep = document.getElementById('repInput').value.trim();
+            const membersStr = document.getElementById('membersInput').value.trim();
+
+            if (!name || !rep || !membersStr) {
+                alert('곡 이름, 곡장, 참가자 이름을 모두 입력해주세요.'); return;
+            }
+
+            const members = membersStr.split(',').map(m => m.trim()).filter(m => m);
+            if(!members.includes(rep)) members.unshift(rep);
+
+            db.collection("stages").add({ name, rep, members })
+              .then(() => {
+                  document.getElementById('stageNameInput').value = '';
+                  document.getElementById('repInput').value = '';
+                  document.getElementById('membersInput').value = '';
+              });
+        }
+
+        function deleteStage(id) {
+            if(confirm('곡과 관련된 데이터가 서버에서 삭제됩니다. 계속하시겠습니까?')) {
+                db.collection("stages").doc(id).delete();
+            }
+        }
+
+        function renderStages() {
+            const list = document.getElementById('stageList');
+            list.innerHTML = '';
+            stages.forEach(stage => {
+                list.innerHTML += `
+                    <div class="stage-card">
+                        <div class="rep-badge">👑 곡장: ${stage.rep || '미지정'}</div>
+                        <h4>${stage.name}</h4>
+                        <p><b>인원 (${stage.members.length}명):</b> ${stage.members.join(', ')}</p>
+                        <button class="danger-btn" onclick="deleteStage('${stage.id}')">삭제</button>
+                    </div>
+                `;
+            });
+        }
+
+        function updateStageDropdown() {
+            const select = document.getElementById('schStage');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">곡 선택</option>';
+            stages.forEach(stage => {
+                select.innerHTML += `<option value="${stage.id}">${stage.name}</option>`;
+            });
+            if(currentValue) select.value = currentValue;
+            updateMembersCheckbox();
+        }
+
+        function toggleAll() {
+            const isChecked = document.getElementById('selectAllBtn').checked;
+            const cbs = document.querySelectorAll('#memberCheckboxesList input[type="checkbox"]');
+            cbs.forEach(cb => cb.checked = isChecked);
+        }
+
+        function updateMembersCheckbox() {
+            const stageSelect = document.getElementById('schStage');
+            const isPersonal = document.getElementById('isPersonalCheck').checked;
+            const container = document.getElementById('memberCheckboxesList');
+            document.getElementById('selectAllBtn').checked = true;
+            
+            if (isPersonal) {
+                stageSelect.disabled = true;
+                stageSelect.value = '';
+                
+                let allNames = new Set();
+                stages.forEach(stage => stage.members.forEach(m => allNames.add(m)));
+                let targetMembers = [...allNames].sort();
+                
+                container.innerHTML = '';
+                if(targetMembers.length === 0) {
+                    container.innerHTML = '등록된 인원이 없습니다. 세팅 탭에서 먼저 추가해주세요.';
+                } else {
+                    targetMembers.forEach(member => {
+                        container.innerHTML += `
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="${member}" checked> ${member}
+                            </label>
+                        `;
+                    });
+                }
+            } else {
+                stageSelect.disabled = false;
+                const stageId = stageSelect.value;
+                
+                if (!stageId) {
+                    container.innerHTML = '곡을 선택하면 인원이 표시됩니다.';
+                    return;
+                }
+
+                const stage = stages.find(s => s.id == stageId);
+                container.innerHTML = '';
+                if(stage) {
+                    stage.members.forEach(member => {
+                        container.innerHTML += `
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="${member}" checked> ${member}
+                            </label>
+                        `;
+                    });
+                }
+            }
+        }
+
+        function addSchedule() {
+            const day = document.getElementById('schDay').value;
+            const startTime = document.getElementById('schStartTime').value;
+            const endTime = document.getElementById('schEndTime').value;
+            const isPersonal = document.getElementById('isPersonalCheck').checked;
+            const stageId = document.getElementById('schStage').value;
+            const remark = document.getElementById('schRemark').value.trim();
+            
+            if (!startTime || !endTime) { alert('시작/종료 시간을 모두 선택해주세요.'); return; }
+            if (startTime >= endTime) { alert('종료 시간이 시작 시간과 같거나 빠를 수 없습니다.'); return; }
+            if (!isPersonal && !stageId) { alert('곡을 선택해주세요.'); return; }
+
+            let saveStageId = 'personal';
+            let saveStageName = '🌟 개인 연수';
+            let saveRep = '';
+
+            if (!isPersonal) {
+                const stage = stages.find(s => s.id == stageId);
+                saveStageId = stage.id;
+                saveStageName = stage.name;
+                saveRep = stage.rep;
+            }
+
+            const checkboxes = document.querySelectorAll('#memberCheckboxesList input[type="checkbox"]');
+            let participants = [];
+            let absentees = [];
+
+            checkboxes.forEach(cb => {
+                if (cb.checked) participants.push(cb.value);
+                else absentees.push(cb.value);
+            });
+
+            const newSchedule = {
+                type: isPersonal ? 'personal' : 'regular',
+                day: parseInt(day),
+                startTime: startTime,
+                endTime: endTime,
+                stageId: saveStageId,
+                stageName: saveStageName,
+                rep: saveRep,
+                participants: [...new Set(participants)],
+                absentees: isPersonal ? [] : absentees,
+                remark: remark
+            };
+
+            db.collection("schedules").add(newSchedule).then(() => {
+                document.getElementById('schStartTime').value = '';
+                document.getElementById('schEndTime').value = '';
+                document.getElementById('schRemark').value = '';
+                updateMembersCheckbox(); 
+            });
+        }
+
+        function deleteSchedule(id) {
+            if(confirm('서버에서 이 일정을 삭제하시겠습니까?')) {
+                db.collection("schedules").doc(id).delete();
+            }
+        }
+
+        function createCardHtml(sch) {
+            const isPersonal = sch.type === 'personal';
+            const cardClass = isPersonal ? 'schedule-card personal-card' : 'schedule-card';
+            
+            const typeBadge = isPersonal ? `<div class="sch-type-badge">개인 연수</div>` : '';
+            const repHtml = (!isPersonal && sch.rep) ? `<div class="sch-rep">👑 곡장: ${sch.rep}</div>` : '';
+            
+            const absentHtml = (!isPersonal && sch.absentees && sch.absentees.length > 0) ? `<div class="sch-absent">❌ 제외: ${sch.absentees.join(', ')}</div>` : '';
+            const remarkHtml = sch.remark ? `<div class="sch-remark">📝 비고: ${sch.remark}</div>` : '';
+            
+            return `
+                <div class="${cardClass}">
+                    ${typeBadge}
+                    <div class="sch-time">⏰ ${sch.startTime} ~ ${sch.endTime}</div>
+                    <div class="sch-stage">${sch.stageName}</div>
+                    ${repHtml}
+                    <div class="sch-members">✅ 참가: ${sch.participants.length > 0 ? sch.participants.join(', ') : '없음'}</div>
+                    ${absentHtml}
+                    ${remarkHtml}
+                    <button class="delete-sch-btn" onclick="deleteSchedule('${sch.id}')">일정 삭제</button>
+                </div>
+            `;
+        }
+
+        function renderWeekSchedules() {
+            for (let i = 0; i < 7; i++) {
+                document.querySelector(`#fullWeekGrid-day-${i} .sch-list`).innerHTML = '';
+            }
+            const sortedSchedules = [...schedules].sort((a, b) => a.startTime.localeCompare(b.startTime));
+            sortedSchedules.forEach(sch => {
+                const list = document.querySelector(`#fullWeekGrid-day-${sch.day} .sch-list`);
+                if(list) list.innerHTML += createCardHtml(sch);
+            });
+        }
+
+        function updatePersonalDropdown() {
+            const select = document.getElementById('personalNameSelect');
+            let allNames = new Set();
+            stages.forEach(stage => stage.members.forEach(m => allNames.add(m)));
+            schedules.forEach(sch => sch.participants.forEach(p => allNames.add(p)));
+            
+            const currentSelected = select.value;
+            select.innerHTML = '<option value="">이름을 선택하세요</option>';
+            [...allNames].sort().forEach(name => {
+                select.innerHTML += `<option value="${name}">${name}</option>`;
+            });
+            if(currentSelected && allNames.has(currentSelected)) select.value = currentSelected;
+        }
+
+        function renderPersonalSchedules() {
+            const selectedName = document.getElementById('personalNameSelect').value;
+            for (let i = 0; i < 7; i++) {
+                const target = document.querySelector(`#personalWeekGrid-day-${i} .sch-list`);
+                if(target) target.innerHTML = '';
+            }
+            if (!selectedName) return; 
+
+            const sortedSchedules = [...schedules].sort((a, b) => a.startTime.localeCompare(b.startTime));
+            sortedSchedules.forEach(sch => {
+                if (sch.participants.includes(selectedName)) {
+                    const list = document.querySelector(`#personalWeekGrid-day-${sch.day} .sch-list`);
+                    if(list) list.innerHTML += createCardHtml(sch);
+                }
+            });
+        }
+
+        // --- 1. 일정 제출 및 수정 기능 ---
+        function updateSubmitNameDropdown() {
+            const select = document.getElementById('submitNameSelect');
+            let allNames = new Set();
+            stages.forEach(stage => stage.members.forEach(m => allNames.add(m)));
+            
+            const currentSelected = select.value;
+            select.innerHTML = '<option value="">본인 이름을 선택하세요</option>';
+            [...allNames].sort().forEach(name => {
+                select.innerHTML += `<option value="${name}">${name}</option>`;
+            });
+            if(currentSelected && allNames.has(currentSelected)) select.value = currentSelected;
+        }
+
+        function loadMySubmission() {
+            const name = document.getElementById('submitNameSelect').value;
+            
+            document.querySelectorAll('.unavail-chk').forEach(cb => {
+                cb.checked = false;
+                toggleReasonInput(cb);
+            });
+            document.querySelectorAll('.bulk-am-chk, .bulk-pm-chk').forEach(cb => {
+                cb.checked = false;
+                const col = cb.closest('.day-column');
+                if(cb.classList.contains('bulk-am-chk')) col.querySelector('.bulk-am-reason').style.display = 'none';
+                if(cb.classList.contains('bulk-pm-chk')) col.querySelector('.bulk-pm-reason').style.display = 'none';
+            });
+            document.getElementById('allPossibleChk').checked = false;
+
+            if (!name) return;
+
+            const myRecord = unavailabilities.find(u => u.name === name);
+            if (myRecord) {
+                if (myRecord.isAllPossible) {
+                    document.getElementById('allPossibleChk').checked = true;
+                    return;
+                }
+                if (myRecord.slots) {
+                    let dayAmSlots = {};
+                    let dayPmSlots = {};
+
+                    myRecord.slots.forEach(slot => {
+                        let h = parseInt(slot.time.split(':')[0]);
+                        if (h < 9) {
+                            if(!dayAmSlots[slot.day]) dayAmSlots[slot.day] = [];
+                            dayAmSlots[slot.day].push(slot);
+                        } else {
+                            if(!dayPmSlots[slot.day]) dayPmSlots[slot.day] = [];
+                            dayPmSlots[slot.day].push(slot);
+                        }
+                    });
+
+                    for(let d=0; d<7; d++) {
+                        const cols = document.querySelectorAll('.submit-grid .day-column');
+                        if(dayAmSlots[d] && dayAmSlots[d].length === 4) {
+                            const bulkAm = cols[d].querySelector('.bulk-am-chk');
+                            bulkAm.checked = true;
+                            const rInput = cols[d].querySelector('.bulk-am-reason');
+                            rInput.style.display = 'block';
+                            rInput.value = dayAmSlots[d][0].reason.replace('[오전 전체] ', '') || '';
+                        } else if(dayAmSlots[d]) {
+                            dayAmSlots[d].forEach(slot => {
+                                const chk = cols[d].querySelector(`.unavail-chk[data-time="${slot.time}"]`);
+                                if(chk) {
+                                    chk.checked = true;
+                                    toggleReasonInput(chk);
+                                    chk.closest('.submit-slot-am').querySelector('.unavail-reason').value = slot.reason;
+                                }
+                            });
+                        }
+
+                        if(dayPmSlots[d] && dayPmSlots[d].length === 6) {
+                            const bulkPm = cols[d].querySelector('.bulk-pm-chk');
+                            bulkPm.checked = true;
+                            const rInput = cols[d].querySelector('.bulk-pm-reason');
+                            rInput.style.display = 'block';
+                            rInput.value = dayPmSlots[d][0].reason.replace('[오후 전체] ', '') || '';
+                        } else if(dayPmSlots[d]) {
+                            dayPmSlots[d].forEach(slot => {
+                                const chk = cols[d].querySelector(`.unavail-chk[data-time="${slot.time}"]`);
+                                if(chk) {
+                                    chk.checked = true;
+                                    toggleReasonInput(chk);
+                                    chk.closest('.submit-slot-pm').querySelector('.unavail-reason').value = slot.reason;
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        function submitUnavailableTimes() {
+            const name = document.getElementById('submitNameSelect').value;
+            if (!name) {
+                alert('본인 이름을 선택해주세요.');
+                return;
+            }
+
+            const isAllPossible = document.getElementById('allPossibleChk').checked;
+            let unavailableSlots = [];
+            let isValid = true;
+
+            if (!isAllPossible) {
+                const cols = document.querySelectorAll('.submit-grid .day-column');
+
+                cols.forEach((col, dayIndex) => {
+                    const bulkAmChk = col.querySelector('.bulk-am-chk');
+                    const bulkAmReason = col.querySelector('.bulk-am-reason').value.trim();
+                    const bulkPmChk = col.querySelector('.bulk-pm-chk');
+                    const bulkPmReason = col.querySelector('.bulk-pm-reason').value.trim();
+
+                    if (bulkAmChk.checked) {
+                        if (!bulkAmReason) {
+                            alert(`${dayIndex + 1}번째 요일의 '오전 전체 불가' 사유를 입력해주세요.`);
+                            col.querySelector('.bulk-am-reason').focus();
+                            isValid = false;
+                            return;
+                        }
+                        for(let h=5; h<9; h++) {
+                            let startH = h.toString().padStart(2, '0') + ':00';
+                            let endH = (h + 1).toString().padStart(2, '0') + ':00';
+                            unavailableSlots.push({
+                                day: dayIndex,
+                                time: `${startH} - ${endH}`,
+                                reason: `[오전 전체] ${bulkAmReason}`
+                            });
+                        }
+                    }
+
+                    if (bulkPmChk.checked) {
+                        if (!bulkPmReason) {
+                            alert(`${dayIndex + 1}번째 요일의 '오후 전체 불가' 사유를 입력해주세요.`);
+                            col.querySelector('.bulk-pm-reason').focus();
+                            isValid = false;
+                            return;
+                        }
+                        for(let h=18; h<24; h++) {
+                            let startH = h.toString().padStart(2, '0') + ':00';
+                            let endH = (h + 1).toString().padStart(2, '0') + ':00';
+                            unavailableSlots.push({
+                                day: dayIndex,
+                                time: `${startH} - ${endH}`,
+                                reason: `[오후 전체] ${bulkPmReason}`
+                            });
+                        }
+                    }
+
+                    col.querySelectorAll('.unavail-chk:checked').forEach(cb => {
+                        let h = parseInt(cb.getAttribute('data-time').split(':')[0]);
+                        let isAm = h < 9;
+                        if ((isAm && !bulkAmChk.checked) || (!isAm && !bulkPmChk.checked)) {
+                            const box = cb.closest('.submit-slot-am, .submit-slot-pm');
+                            const reasonInput = box.querySelector('.unavail-reason');
+                            const reason = reasonInput.value.trim();
+
+                            if (!reason) {
+                                alert(`체크하신 시간(${cb.getAttribute('data-time')})의 사유를 입력해주세요.`);
+                                reasonInput.focus();
+                                isValid = false;
+                                return;
+                            }
+
+                            unavailableSlots.push({
+                                day: dayIndex,
+                                time: cb.getAttribute('data-time'),
+                                reason: reason
+                            });
+                        }
+                    });
+                });
+
+                if (!isValid) return;
+
+                if (unavailableSlots.length === 0) {
+                    alert('불가능한 시간을 최소 한 개 이상 체크하거나 "모두 가능"에 체크해주세요.');
+                    return;
+                }
+            }
+
+            const existingRecord = unavailabilities.find(u => u.name === name);
+            const dataToSave = {
+                name: name,
+                isAllPossible: isAllPossible,
+                slots: unavailableSlots,
+                updatedAt: new Date().toISOString()
+            };
+
+            if (existingRecord) {
+                db.collection("unavailabilities").doc(existingRecord.id).set(dataToSave)
+                  .then(() => alert('불가능한 일정이 성공적으로 수정 및 저장되었습니다!'))
+                  .catch(err => alert('제출 실패: ' + err.message));
+            } else {
+                db.collection("unavailabilities").add(dataToSave)
+                  .then(() => alert('불가능한 일정이 성공적으로 제출되었습니다!'))
+                  .catch(err => alert('제출 실패: ' + err.message));
+            }
+        }
+
+        function resetAllSubmissions() {
+            if (confirm('모든 팀원들의 제출된 불가능 일정 데이터를 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+                const batch = db.batch();
+                unavailabilities.forEach(item => {
+                    const docRef = db.collection("unavailabilities").doc(item.id);
+                    batch.delete(docRef);
+                });
+                batch.commit().then(() => {
+                    alert('모든 제출 데이터가 초기화되었습니다.');
+                    loadMySubmission();
+                }).catch(err => alert('초기화 실패: ' + err.message));
+            }
+        }
+
+        function renderResultMatrix() {
+            const container = document.getElementById('resultTableContainer');
+            const days = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+
+            let timeSlots = [];
+            for(let h=5; h<24; h++) {
+                if (h >= 9 && h <= 17) continue; 
+                let startH = h.toString().padStart(2, '0') + ':00';
+                let endH = (h + 1).toString().padStart(2, '0') + ':00';
+                timeSlots.push(`${startH} - ${endH}`);
+            }
+
+            let slotMap = {};
+            timeSlots.forEach(t => {
+                slotMap[t] = {};
+                for(let d=0; d<7; d++) slotMap[t][d] = [];
+            });
+
+            unavailabilities.forEach(item => {
+                if(!item.isAllPossible && item.slots) {
+                    item.slots.forEach(slot => {
+                        if(slotMap[slot.time] && slotMap[slot.time][slot.day]) {
+                            slotMap[slot.time][slot.day].push({
+                                name: item.name,
+                                reason: slot.reason
+                            });
+                        }
+                    });
+                }
+            });
+
+            let html = `<table class="matrix-table"><thead><tr><th>시간 \\ 요일</th>`;
+            days.forEach((day, index) => {
+                let dateStr = dayDates[index] ? `<br><span style="font-size:11px; color:#64748b;">(${dayDates[index]})</span>` : '';
+                html += `<th>${day}${dateStr}</th>`;
+            });
+            html += `</tr></thead><tbody>`;
+
+            timeSlots.forEach(timeStr => {
+                html += `<tr><td style="font-weight:bold; background:#f8fafc;">${timeStr}</td>`;
+                for(let d=0; d<7; d++) {
+                    let people = slotMap[timeStr][d];
+                    if(people.length > 0) {
+                        let namesStr = people.map(p => p.name).join(', ');
+                        let tooltipText = people.map(p => `[${p.name}] ${p.reason}`).join('\n');
+                        html += `<td><div class="matrix-cell" data-tooltip="${tooltipText}">${namesStr}</div></td>`;
+                    } else {
+                        html += `<td style="color:#cbd5e1;">-</td>`;
+                    }
+                }
+                html += `</tr>`;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        }
+
+        // --- 3. 곡별 가능 시간 필터링 함수 ---
+        function updateAvailabilityStageDropdown() {
+            const select = document.getElementById('availabilityStageSelect');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">곡을 선택하세요</option>';
+            stages.forEach(stage => {
+                select.innerHTML += `<option value="${stage.id}">${stage.name} (총 ${stage.members.length}명)</option>`;
+            });
+            if(currentValue) select.value = currentValue;
+        }
+
+        function renderStageAvailability() {
+            const container = document.getElementById('availabilityTableContainer');
+            const stageId = document.getElementById('availabilityStageSelect').value;
+            
+            if (!stageId) {
+                container.innerHTML = '<p style="text-align:center; color:#666; font-size:14px;">👆 필터링할 곡을 위에서 선택해주세요.</p>';
+                return;
+            }
+
+            const stage = stages.find(s => s.id === stageId);
+            if (!stage) return;
+
+            const days = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일'];
+            let timeSlots = [];
+            for(let h=5; h<24; h++) {
+                if (h >= 9 && h <= 17) continue; 
+                let startH = h.toString().padStart(2, '0') + ':00';
+                let endH = (h + 1).toString().padStart(2, '0') + ':00';
+                timeSlots.push(`${startH} - ${endH}`);
+            }
+
+            let slotMap = {};
+            timeSlots.forEach(t => {
+                slotMap[t] = {};
+                for(let d=0; d<7; d++) slotMap[t][d] = [];
+            });
+
+            const stageMembers = stage.members;
+            
+            unavailabilities.forEach(item => {
+                if(stageMembers.includes(item.name) && !item.isAllPossible && item.slots) {
+                    item.slots.forEach(slot => {
+                        if(slotMap[slot.time] && slotMap[slot.time][slot.day]) {
+                            slotMap[slot.time][slot.day].push({
+                                name: item.name,
+                                reason: slot.reason
+                            });
+                        }
+                    });
+                }
+            });
+
+            let html = `<table class="matrix-table"><thead><tr><th>시간 \\ 요일</th>`;
+            days.forEach((day, index) => {
+                let dateStr = dayDates[index] ? `<br><span style="font-size:11px; color:#64748b;">(${dayDates[index]})</span>` : '';
+                html += `<th>${day}${dateStr}</th>`;
+            });
+            html += `</tr></thead><tbody>`;
+
+            timeSlots.forEach(timeStr => {
+                html += `<tr><td style="font-weight:bold; background:#f8fafc;">${timeStr}</td>`;
+                for(let d=0; d<7; d++) {
+                    let unavailablePeople = slotMap[timeStr][d];
+                    
+                    if(unavailablePeople.length > 0) {
+                        let namesStr = unavailablePeople.map(p => p.name).join(', ');
+                        let tooltipText = unavailablePeople.map(p => `[${p.name}] ${p.reason}`).join('\n');
+                        html += `<td><div class="matrix-cell" data-tooltip="${tooltipText}">❌ 불가<br><span style="font-size:10px; font-weight:normal;">(${namesStr})</span></div></td>`;
+                    } else {
+                        html += `<td><div class="avail-cell-yes">✅ 가능</div></td>`;
+                    }
+                }
+                html += `</tr>`;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
